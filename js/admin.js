@@ -6,8 +6,9 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const num = v => Number(String(v).trim().replace(/[٠-٩]/g, x => '٠١٢٣٤٥٦٧٨٩'.indexOf(x)).replace('٫', '.'));
 const OFN = { none: 'بدون عرض', monthly: 'شهري', weekly: 'أسبوعي', daily: 'يومي' };
 const ST = { new: 'جديدة', in_progress: 'قيد المراجعة', done: 'تم الحل' };
+const OST = { new: 'جديد', confirmed: 'مؤكد', shipped: 'خرج للتوصيل', delivered: 'تم التسليم', cancelled: 'ملغي' };
 const fm = (t, ok = true) => ({ t, ok });
-let tab = 'products', cats = [], prods = [], comps = [], settings = null, editing = null, flash = null;
+let tab = 'products', cats = [], prods = [], comps = [], ords = [], settings = null, editing = null, flash = null;
 
 const fl = (id, label, inner) => `<div class="f"><label for="${id}">${label}</label>${inner}<div class="er" id="e-${id}" aria-live="polite"></div></div>`;
 const loc = iso => { if (!iso) return ''; const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
@@ -20,6 +21,7 @@ const setSt = (t, ok) => {
 };
 const errs = (er, keys) => keys.forEach(k => { const e = document.getElementById('e-' + k); if (e) e.textContent = er[k] || ''; });
 const stBox = '<div id="st" role="status" style="margin-top:16px"></div>';
+const money = n => Number(n).toLocaleString('ar-EG') + ' ' + C.currency;
 
 const showLogin = () => {
   A.innerHTML = `<h1>دخول الإدارة</h1><form id="lf" novalidate>
@@ -31,7 +33,7 @@ const showLogin = () => {
 const vProducts = () => {
   if (editing !== null) return vForm();
   const list = prods.length ? prods.map(p => `<div class="item"><div><div class="name">${esc(p.name)}</div>
-  <div class="sub">${Number(p.price).toLocaleString('ar-EG')} ${C.currency} | ${OFN[p.offer_type]} | ${p.in_stock ? 'متوفر' : 'غير متوفر'} | ${p.is_active ? 'ظاهر' : 'مخفي'}${p.is_demo ? ' | تجريبي' : ''}</div></div>
+  <div class="sub">${money(p.price)} | ${OFN[p.offer_type]} | ${p.in_stock ? 'متوفر' : 'غير متوفر'} | ${p.is_active ? 'ظاهر' : 'مخفي'}${p.is_demo ? ' | تجريبي' : ''}</div></div>
   <button class="btn" data-a="edit" data-id="${p.id}">تعديل</button></div>`).join('') : '<p class="empty">لا توجد منتجات.</p>';
   return `<button class="btn pri" data-a="new">إضافة منتج</button><div class="box" style="margin-top:16px">${list}</div>`;
 };
@@ -61,6 +63,14 @@ const vForm = () => {
 
 const vCats = () => `<div class="box">${cats.map(c => `<div class="item"><input id="cn-${c.id}" value="${esc(c.name)}" aria-label="اسم القسم" maxlength="40"><button class="btn" data-a="savecat" data-id="${c.id}">حفظ</button></div>`).join('')}</div>`;
 
+const vOrders = () => ords.length ? ords.map(o => `<div class="box"><div class="name">طلب رقم ${o.id.toLocaleString('ar-EG')} | ${esc(o.customer_name)} | <span dir="ltr">${esc(o.phone)}</span></div>
+  <div class="sub">${new Date(o.created_at).toLocaleString('ar-EG')}</div>
+  <p>${esc(o.address)}</p>${o.notes ? `<p class="sub">ملاحظات: ${esc(o.notes)}</p>` : ''}
+  <div>${(o.order_items || []).map(i => `<div class="sub">${esc(i.product_name)} × ${i.qty.toLocaleString('ar-EG')} = ${money(i.unit_price * i.qty)}</div>`).join('')}</div>
+  <div class="total">الإجمالي: ${money(o.total)}</div><label for="o${o.id}">الحالة</label>
+  <select id="o${o.id}" data-oid="${o.id}">${Object.keys(OST).map(k => `<option value="${k}" ${o.status === k ? 'selected' : ''}>${OST[k]}</option>`).join('')}</select></div>`).join('')
+  : '<p class="empty">لا توجد طلبات.</p>';
+
 const vComps = () => comps.length ? comps.map(c => `<div class="box"><div class="name">${esc(c.name)} | <span dir="ltr">${esc(c.phone)}</span></div>
   <div class="sub">${esc(c.type)}${c.order_number ? ' | طلب ' + esc(c.order_number) : ''} | ${new Date(c.created_at).toLocaleString('ar-EG')}</div>
   <p style="white-space:pre-wrap">${esc(c.details)}</p><label for="s${c.id}">الحالة</label>
@@ -74,9 +84,9 @@ const vSettings = () => !settings ? '<p class="status">لا توجد إعداد�
   <button class="btn pri" type="submit">حفظ الإعدادات</button>${stBox}</form>`;
 
 const draw = (ok = true) => {
-  const tabs = [['products', 'المنتجات'], ['categories', 'الأقسام'], ['complaints', 'الشكاوى'], ['settings', 'الإعدادات']]
+  const tabs = [['products', 'المنتجات'], ['orders', 'الطلبات'], ['categories', 'الأقسام'], ['complaints', 'الشكاوى'], ['settings', 'الإعدادات']]
     .map(([k, l]) => `<button class="btn ${tab === k ? 'on' : ''}" data-a="tab" data-t="${k}">${l}</button>`).join('');
-  const body = !ok ? '<p class="status">تعذر تحميل البيانات. حاول مرة أخرى.</p>' : { products: vProducts, categories: vCats, complaints: vComps, settings: vSettings }[tab]();
+  const body = !ok ? '<p class="status">تعذر تحميل البيانات. حاول مرة أخرى.</p>' : { products: vProducts, orders: vOrders, categories: vCats, complaints: vComps, settings: vSettings }[tab]();
   const fb = flash ? `<p class="status" style="margin-top:16px;${flash.ok ? 'color:var(--ok);border-color:var(--ok)' : ''}">${esc(flash.t)}</p>` : '';
   A.innerHTML = `<h1>لوحة الإدارة</h1><div class="row" style="flex-wrap:wrap">${tabs}<button class="btn" data-a="out">خروج</button></div>${fb}<div style="margin-top:16px">${body}</div>`;
 };
@@ -89,6 +99,10 @@ const loadTab = async () => {
       sb.from('products').select('*').order('created_at', { ascending: false })
     ]);
     err = c.error || p.error; cats = c.data || []; prods = p.data || [];
+  }
+  if (tab === 'orders') {
+    const r = await sb.from('orders').select('*, order_items(*)').order('created_at', { ascending: false }).limit(100);
+    err = r.error; ords = r.data || [];
   }
   if (tab === 'complaints') {
     const r = await sb.from('complaints').select('*').order('created_at', { ascending: false }).limit(100);
@@ -192,11 +206,12 @@ A.addEventListener('click', async e => {
 });
 
 A.addEventListener('change', async e => {
-  const s = e.target.closest('[data-cid]');
+  const s = e.target.closest('[data-cid], [data-oid]');
   if (!s) return;
-  const r = await sb.from('complaints').update({ status: s.value }).eq('id', Number(s.dataset.cid));
-  if (!r.error) comps.find(c => c.id === Number(s.dataset.cid)).status = s.value;
-  flash = r.error ? fm('تعذر تحديث حالة الشكوى.', false) : fm('تم تحديث حالة الشكوى.');
+  const isOrder = !!s.dataset.oid, id = Number(isOrder ? s.dataset.oid : s.dataset.cid);
+  const r = await sb.from(isOrder ? 'orders' : 'complaints').update({ status: s.value }).eq('id', id);
+  if (!r.error) (isOrder ? ords : comps).find(c => c.id === id).status = s.value;
+  flash = r.error ? fm('تعذر تحديث الحالة.', false) : fm('تم تحديث الحالة.');
   const y = scrollY; draw(); scrollTo(0, y);
 });
 
