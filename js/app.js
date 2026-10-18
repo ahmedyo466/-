@@ -1,5 +1,7 @@
 (() => {
-const C = window.CONFIG, P = window.PRODUCTS;
+const C = window.CONFIG;
+const sb = C.supabaseUrl && !C.supabaseUrl.startsWith('YOUR') && window.supabase
+  ? window.supabase.createClient(C.supabaseUrl, C.supabaseKey) : null;
 const M = document.getElementById('main');
 const IC = {
   star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
@@ -14,17 +16,50 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 const ld = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const sv = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 const money = n => n.toLocaleString('ar-EG') + ' ' + C.currency;
-const byId = id => P.find(p => p.id == id);
 const OF = { monthly: 'عرض شهري', weekly: 'عرض أسبوعي', daily: 'عرض يومي' };
-let saved = ld('saved', []), cart = ld('cart', {});
+let P = [], cats = [], user = null, saved = ld('saved', []), cart = ld('cart', {}), loadErr = '';
+const byId = id => P.find(p => p.id == id);
+const say = t => { document.getElementById('msg').textContent = t || ''; };
 
-const img = p => 'data:image/svg+xml,' + encodeURIComponent(
+const load = async () => {
+  if (!sb) { loadErr = 'لم يتم ربط قاعدة البيانات بعد. أضف بيانات Supabase في ملف js/config.js.'; return; }
+  const [c, p] = await Promise.all([
+    sb.from('categories').select('id,name').order('sort').order('id'),
+    sb.from('products').select('*').eq('is_active', true).order('created_at', { ascending: false })
+  ]);
+  if (c.error || p.error) { loadErr = 'تعذر تحميل البيانات. تحقق من الاتصال وحاول مرة أخرى.'; return; }
+  cats = c.data;
+  const now = Date.now();
+  P = p.data.map(r => {
+    const on = r.offer_type !== 'none'
+      && (!r.offer_starts_at || Date.parse(r.offer_starts_at) <= now)
+      && (!r.offer_ends_at || Date.parse(r.offer_ends_at) > now);
+    return { id: r.id, name: r.name, cat: r.category_id, price: Number(r.price),
+      old: on && r.old_price ? Number(r.old_price) : 0, offer: on ? r.offer_type : 'none',
+      addedAt: Date.parse(r.created_at), stock: r.in_stock, img: r.image_url, demo: r.is_demo };
+  });
+  loadErr = '';
+};
+
+const loadSaved = async () => {
+  if (!user) { saved = ld('saved', []); return; }
+  const local = ld('saved', []).filter(id => byId(id));
+  if (local.length) {
+    await sb.from('saved_products').upsert(local.map(id => ({ product_id: id })), { onConflict: 'user_id,product_id', ignoreDuplicates: true });
+  }
+  sv('saved', []);
+  const r = await sb.from('saved_products').select('product_id');
+  saved = r.error ? [] : r.data.map(x => x.product_id);
+};
+
+const img = p => p.img ? esc(p.img) : 'data:image/svg+xml,' + encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><rect width="400" height="400" fill="#ececec"/><rect x="130" y="100" width="140" height="130" rx="8" fill="#cfcfcf"/><text x="200" y="290" font-family="sans-serif" font-size="22" text-anchor="middle" fill="#444">${esc(p.name)}</text><text x="200" y="330" font-family="sans-serif" font-size="14" text-anchor="middle" fill="#666">صورة تجريبية</text></svg>`);
 
 const order = () => {
   let o; try { o = JSON.parse(sessionStorage.getItem('ord')); } catch {}
-  if (!o || o.length !== P.length) {
-    o = P.map(p => p.id).sort(() => Math.random() - .5);
+  const ids = P.map(p => p.id);
+  if (!o || o.length !== ids.length || o.some(id => !ids.includes(id))) {
+    o = ids.sort(() => Math.random() - .5);
     try { sessionStorage.setItem('ord', JSON.stringify(o)); } catch {}
   }
   return o.map(byId);
@@ -32,21 +67,22 @@ const order = () => {
 
 const card = p => {
   const on = saved.includes(p.id), d = p.old > p.price ? Math.round((1 - p.price / p.old) * 100) : 0;
-  return `<article class="card"><a href="#/product/${p.id}"><img src="${img(p)}" alt="${esc(p.name)} (صورة تجريبية)" loading="lazy"></a>
+  return `<article class="card"><a href="#/product/${p.id}"><img src="${img(p)}" alt="${esc(p.name)}" loading="lazy"></a>
   <div class="cb">${p.offer !== 'none' ? `<span class="tag ${p.offer}">${OF[p.offer]}</span>` : ''}
   <a class="name" href="#/product/${p.id}">${esc(p.name)}</a>
   <div><span class="price">${money(p.price)}</span>${d ? `<span class="old">${money(p.old)}</span><span class="sub">خصم ${d}%</span>` : ''}</div>
-  <div class="sub">${p.stock ? 'متوفر' : 'غير متوفر'}</div>
+  <div class="sub">${p.stock ? 'متوفر' : 'غير متوفر'}${p.demo ? ' | منتج تجريبي' : ''}</div>
   <div class="row"><button class="btn pri" data-act="add" data-id="${p.id}" ${p.stock ? '' : 'disabled'}>أضف إلى السلة</button>
   <button class="btn" data-act="save" data-id="${p.id}" aria-pressed="${on}" aria-label="${on ? 'إزالة من المحفوظات' : 'حفظ المنتج'}">${ic('star')}</button></div></div></article>`;
 };
 const grid = l => `<div class="grid">${l.map(card).join('')}</div>`;
 const empty = t => `<p class="empty">${t}</p>`;
+const fl = (id, label, inner) => `<div class="f"><label for="${id}">${label}</label>${inner}<div class="er" id="e-${id}" aria-live="polite"></div></div>`;
 
 const R = {
-  home: () => `<h1>منتجات المنزل</h1>${grid(order())}`,
+  home: () => `<h1>منتجات المنزل</h1>${P.length ? grid(order()) : empty('لا توجد منتجات حاليًا.')}`,
   cat: id => {
-    const c = C.categories.find(x => x.id == id);
+    const c = cats.find(x => x.id == id);
     if (!c) return R.home();
     const l = P.filter(p => p.cat == c.id);
     return `<h1>${esc(c.name)}</h1>${l.length ? grid(l) : empty('لا توجد منتجات في هذا القسم بعد.')}`;
@@ -66,7 +102,8 @@ const R = {
   },
   saved: () => {
     const l = saved.map(byId).filter(Boolean);
-    return `<h1>المحفوظات</h1><p class="sub">المحفوظات مرتبطة بهذا المتصفح وهذا الجهاز فقط.</p>${l.length ? grid(l) : empty('لم تحفظ أي منتج بعد. اضغط على النجمة في أي منتج لحفظه.')}`;
+    const note = user ? 'المحفوظات مرتبطة بحسابك.' : 'المحفوظات مرتبطة بهذا المتصفح وهذا الجهاز فقط. سجل الدخول لحفظها في حسابك.';
+    return `<h1>المحفوظات</h1><p class="sub">${note}</p>${l.length ? grid(l) : empty('لم تحفظ أي منتج بعد. اضغط على النجمة في أي منتج لحفظه.')}`;
   },
   search: q => {
     const l = P.filter(p => p.name.includes(q.trim()));
@@ -75,10 +112,11 @@ const R = {
   product: id => {
     const p = byId(id);
     if (!p) return R.home();
-    return `<p><button class="btn" data-act="back">${ic('back')} رجوع</button></p><div class="pd"><img src="${img(p)}" alt="${esc(p.name)} (صورة تجريبية)">
-    <div><h1>${esc(p.name)}</h1><p class="sub">القسم: ${esc(C.categories.find(c => c.id === p.cat).name)}</p>${p.offer !== 'none' ? `<span class="tag ${p.offer}">${OF[p.offer]}</span>` : ''}
+    const c = cats.find(x => x.id === p.cat);
+    return `<p><button class="btn" data-act="back">${ic('back')} رجوع</button></p><div class="pd"><img src="${img(p)}" alt="${esc(p.name)}">
+    <div><h1>${esc(p.name)}</h1>${c ? `<p class="sub">القسم: ${esc(c.name)}</p>` : ''}${p.offer !== 'none' ? `<span class="tag ${p.offer}">${OF[p.offer]}</span>` : ''}
     <p><span class="price">${money(p.price)}</span>${p.old > p.price ? `<span class="old">${money(p.old)}</span>` : ''}</p>
-    <p class="sub">${p.stock ? 'متوفر' : 'غير متوفر'}</p>
+    <p class="sub">${p.stock ? 'متوفر' : 'غير متوفر'}${p.demo ? ' | منتج تجريبي' : ''}</p>
     <div class="row"><button class="btn pri" data-act="add" data-id="${p.id}" ${p.stock ? '' : 'disabled'}>أضف إلى السلة</button>
     <button class="btn" data-act="save" data-id="${p.id}" aria-pressed="${saved.includes(p.id)}" aria-label="حفظ أو إزالة المنتج">${ic('star')}</button></div></div></div>`;
   },
@@ -93,69 +131,135 @@ const R = {
     <a class="btn pri" target="_blank" rel="noopener" href="https://wa.me/${C.whatsapp}?text=${encodeURIComponent(msg)}">إرسال الطلب عبر واتساب</a>
     <p class="sub">رقم واتساب الحالي تجريبي. فتح واتساب لا يسجل الطلب في قاعدة بيانات.</p></div>`;
   },
-  complaints: () => {
-    const fl = (id, label, inner) => `<div class="f"><label for="${id}">${label}</label>${inner}<div class="er" id="e-${id}" aria-live="polite"></div></div>`;
-    return `<h1>الشكاوى</h1><form id="cf" novalidate>
+  complaints: () => `<h1>الشكاوى</h1><form id="cf" novalidate>
     ${fl('name', 'الاسم', '<input id="name" name="name" autocomplete="name">')}
     ${fl('phone', 'رقم الهاتف', '<input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel">')}
     ${fl('order', 'رقم الطلب (إن وجد)', '<input id="order" name="order">')}
     ${fl('type', 'نوع الشكوى', '<select id="type" name="type"><option value="">اختر نوع الشكوى</option><option>مشكلة في منتج</option><option>تأخر الطلب</option><option>مشكلة في السعر أو العرض</option><option>مشكلة في التوصيل</option><option>شكوى أخرى</option></select>')}
     ${fl('details', 'تفاصيل الشكوى', '<textarea id="details" name="details"></textarea>')}
-    <button class="btn pri" type="submit">إرسال الشكوى</button><div id="st" role="status" style="margin-top:16px"></div></form>`;
-  }
+    <button class="btn pri" type="submit" id="cbtn">إرسال الشكوى</button><div id="st" role="status" style="margin-top:16px"></div></form>`,
+  login: () => user
+    ? `<h1>حسابي</h1><p>${esc(user.email)}</p><button class="btn" data-act="logout">تسجيل الخروج</button>`
+    : `<h1>تسجيل الدخول</h1><p class="sub">الحساب اختياري. يحفظ مفضلتك في حسابك على أي جهاز.</p><form id="lf" novalidate>
+    ${fl('email', 'البريد الإلكتروني', '<input id="email" name="email" type="email" autocomplete="email" dir="ltr">')}
+    ${fl('password', 'كلمة المرور (6 أحرف على الأقل)', '<input id="password" name="password" type="password" autocomplete="current-password" dir="ltr">')}
+    <div class="row"><button class="btn pri" type="submit" data-mode="in">دخول</button><button class="btn" type="submit" data-mode="up">إنشاء حساب</button></div>
+    <div id="st" role="status" style="margin-top:16px"></div></form>`
+};
+
+const buildNav = () => {
+  document.getElementById('nav').innerHTML = [['#/offers', 'العروض'], ['#/new', 'أحدث المنتجات'],
+    ...cats.map(c => ['#/cat/' + c.id, esc(c.name)]), ['#/saved', 'المحفوظات'], ['#/complaints', 'الشكاوى'],
+    ['#/login', user ? 'حسابي' : 'الدخول']].map(x => `<a href="${x[0]}">${x[1]}</a>`).join('');
 };
 
 const render = () => {
   const [r, a = ''] = location.hash.slice(2).split('/');
   const arg = decodeURIComponent(a);
-  const h = r === 'cat' ? R.cat(arg) : Object.hasOwn(R, r) && r !== 'home' && r !== 'cat' ? R[r](arg) : R.home();
-  M.innerHTML = h;
-  document.querySelectorAll('#nav a').forEach(x => x.toggleAttribute('aria-current', x.getAttribute('href').split('/')[1] === r && (r !== 'cat' || x.getAttribute('href') === '#/cat/' + arg)));
-  document.querySelectorAll('#nav a[aria-current]').forEach(x => x.setAttribute('aria-current', 'page'));
+  if (loadErr) {
+    M.innerHTML = `<p class="status" style="margin-top:24px">${loadErr}</p><p><button class="btn" data-act="retry">إعادة المحاولة</button></p>`;
+  } else {
+    M.innerHTML = r === 'cat' ? R.cat(arg) : Object.hasOwn(R, r) && r !== 'home' && r !== 'cat' ? R[r](arg) : R.home();
+  }
+  document.querySelectorAll('#nav a').forEach(x => {
+    const on = x.getAttribute('href').split('/')[1] === r && (r !== 'cat' || x.getAttribute('href') === '#/cat/' + arg);
+    on ? x.setAttribute('aria-current', 'page') : x.removeAttribute('aria-current');
+  });
   document.getElementById('cartLink').innerHTML = ic('cart') + `<span>${Object.values(cart).reduce((s, n) => s + n, 0).toLocaleString('ar-EG')}</span>`;
+  document.getElementById('foot').textContent = C.storeName + (P.some(p => p.demo) ? ' | بعض المنتجات المعروضة تجريبية' : '');
 };
 
-document.getElementById('nav').innerHTML = [['#/offers', 'العروض'], ['#/new', 'أحدث المنتجات'],
-  ...C.categories.map(c => ['#/cat/' + c.id, esc(c.name)]), ['#/saved', 'المحفوظات'], ['#/complaints', 'الشكاوى']]
-  .map(x => `<a href="${x[0]}">${x[1]}</a>`).join('');
-document.getElementById('foot').textContent = C.storeName + ' | بيانات المنتجات تجريبية في هذه المرحلة';
-document.title = C.storeName;
-document.getElementById('logo').textContent = C.storeName;
+const boot = async () => {
+  M.innerHTML = '<p class="empty">جار التحميل...</p>';
+  await load();
+  buildNav();
+  render();
+};
 
+document.getElementById('logo').textContent = C.storeName;
+document.title = C.storeName;
 document.getElementById('q').addEventListener('input', e => {
   const v = e.target.value.trim();
   location.hash = v ? '#/search/' + encodeURIComponent(v) : '#/';
 });
 
-document.addEventListener('click', e => {
+document.addEventListener('click', async e => {
   const b = e.target.closest('[data-act]');
   if (!b) return;
   const id = Number(b.dataset.id), act = b.dataset.act;
   if (act === 'back') return history.back();
-  if (act === 'save') saved = saved.includes(id) ? saved.filter(x => x !== id) : [...saved, id];
+  if (act === 'retry') return boot();
+  if (act === 'logout') { await sb.auth.signOut(); location.hash = '#/'; return; }
+  if (act === 'save') {
+    const has = saved.includes(id);
+    const before = saved;
+    saved = has ? saved.filter(x => x !== id) : [...saved, id];
+    if (user) {
+      const r = has ? await sb.from('saved_products').delete().eq('product_id', id) : await sb.from('saved_products').insert({ product_id: id });
+      if (r.error) { saved = before; say('تعذر تحديث المحفوظات. حاول مرة أخرى.'); } else say('');
+    } else sv('saved', saved);
+  }
   if (act === 'add' || act === 'inc') cart[id] = (cart[id] || 0) + 1;
   if (act === 'dec') { cart[id] > 1 ? cart[id]-- : delete cart[id]; }
   if (act === 'del') delete cart[id];
-  sv('saved', saved); sv('cart', cart);
+  sv('cart', cart);
   const y = scrollY; render(); scrollTo(0, y);
 });
 
-document.addEventListener('submit', e => {
-  if (e.target.id !== 'cf') return;
-  e.preventDefault();
-  const d = Object.fromEntries(new FormData(e.target));
-  const ph = (d.phone || '').trim().replace(/[٠-٩]/g, x => '٠١٢٣٤٥٦٧٨٩'.indexOf(x));
-  const er = {};
-  if (!d.name.trim()) er.name = 'اكتب اسمك';
-  if (!/^01[0125]\d{8}$/.test(ph)) er.phone = 'اكتب رقم موبايل مصري صحيح من 11 رقمًا';
-  if (!d.type) er.type = 'اختر نوع الشكوى';
-  if (d.details.trim().length < 10) er.details = 'اكتب تفاصيل الشكوى (10 أحرف على الأقل)';
-  ['name', 'phone', 'type', 'details'].forEach(k => { document.getElementById('e-' + k).textContent = er[k] || ''; });
+const setSt = (t, ok) => {
   const st = document.getElementById('st');
-  st.className = Object.keys(er).length ? '' : 'status';
-  st.textContent = Object.keys(er).length ? '' : 'لم يتم إرسال الشكوى. حفظ الشكاوى في قاعدة البيانات يبدأ في المرحلة الثانية.';
+  st.className = t ? 'status' : '';
+  st.style.cssText = ok ? 'color:var(--ok);border-color:var(--ok)' : '';
+  st.textContent = t;
+};
+
+document.addEventListener('submit', async e => {
+  const f = e.target;
+  if (f.id !== 'cf' && f.id !== 'lf') return;
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(f));
+  if (f.id === 'cf') {
+    const ph = (d.phone || '').trim().replace(/[٠-٩]/g, x => '٠١٢٣٤٥٦٧٨٩'.indexOf(x));
+    const er = {};
+    if (d.name.trim().length < 2) er.name = 'اكتب اسمك';
+    if (!/^01[0125]\d{8}$/.test(ph)) er.phone = 'اكتب رقم موبايل مصري صحيح من 11 رقمًا';
+    if (!d.type) er.type = 'اختر نوع الشكوى';
+    if (d.details.trim().length < 10) er.details = 'اكتب تفاصيل الشكوى (10 أحرف على الأقل)';
+    ['name', 'phone', 'type', 'details'].forEach(k => { document.getElementById('e-' + k).textContent = er[k] || ''; });
+    if (Object.keys(er).length) return setSt('');
+    if (!sb) return setSt('قاعدة البيانات غير مربوطة بعد، لذلك لم يتم إرسال الشكوى.');
+    const btn = document.getElementById('cbtn');
+    btn.disabled = true; setSt('جار الإرسال...');
+    const r = await sb.from('complaints').insert({ name: d.name.trim(), phone: ph, order_number: d.order.trim() || null, type: d.type, details: d.details.trim(), user_id: user ? user.id : null });
+    btn.disabled = false;
+    if (r.error) return setSt('تعذر إرسال الشكوى. حاول مرة أخرى بعد قليل.');
+    f.reset(); setSt('تم إرسال شكواك وحفظها. سنراجعها ونتواصل معك.', true);
+  } else {
+    const mode = e.submitter && e.submitter.dataset.mode;
+    const er = {};
+    if (!/^\S+@\S+\.\S+$/.test(d.email.trim())) er.email = 'اكتب بريدًا إلكترونيًا صحيحًا';
+    if (d.password.length < 6) er.password = 'كلمة المرور 6 أحرف على الأقل';
+    ['email', 'password'].forEach(k => { document.getElementById('e-' + k).textContent = er[k] || ''; });
+    if (Object.keys(er).length) return setSt('');
+    if (!sb) return setSt('قاعدة البيانات غير مربوطة بعد.');
+    setSt('جار التنفيذ...');
+    const cred = { email: d.email.trim(), password: d.password };
+    const r = mode === 'up' ? await sb.auth.signUp(cred) : await sb.auth.signInWithPassword(cred);
+    if (r.error) return setSt(mode === 'up' ? 'تعذر إنشاء الحساب. قد يكون البريد مستخدمًا.' : 'تعذر الدخول. تأكد من البريد وكلمة المرور.');
+    if (!r.data.session) return setSt('تم إنشاء الحساب. افتح بريدك لتأكيده ثم سجل الدخول.', true);
+    location.hash = '#/saved';
+  }
 });
 
 window.addEventListener('hashchange', () => { render(); scrollTo(0, 0); M.focus({ preventScroll: true }); });
-render();
+
+if (sb) {
+  sb.auth.onAuthStateChange((_ev, session) => {
+    setTimeout(async () => {
+      user = session ? session.user : null;
+      await loadSaved(); buildNav(); render();
+    }, 0);
+  });
+}
+boot().then(() => loadSaved()).then(render);
 })();
