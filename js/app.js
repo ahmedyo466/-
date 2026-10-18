@@ -12,12 +12,13 @@ const IC = {
   trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>'
 };
 const ic = n => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n]}</svg>`;
-const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ld = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const sv = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 const money = n => n.toLocaleString('ar-EG') + ' ' + C.currency;
 const OF = { monthly: 'عرض شهري', weekly: 'عرض أسبوعي', daily: 'عرض يومي' };
-let P = [], cats = [], user = null, saved = ld('saved', []), cart = ld('cart', {}), loadErr = '';
+let P = [], cats = [], user = null, saved = ld('saved', []), cart = ld('cart', {}), loadErr = '', done = null;
+const draft = {};
 const byId = id => P.find(p => p.id == id);
 const say = t => { document.getElementById('msg').textContent = t || ''; };
 
@@ -85,6 +86,7 @@ const card = p => {
 const grid = l => `<div class="grid">${l.map(card).join('')}</div>`;
 const empty = t => `<p class="empty">${t}</p>`;
 const fl = (id, label, inner) => `<div class="f"><label for="${id}">${label}</label>${inner}<div class="er" id="e-${id}" aria-live="polite"></div></div>`;
+const stBox = '<div id="st" role="status" style="margin-top:16px"></div>';
 
 const R = {
   home: () => `<h1>منتجات المنزل</h1>${P.length ? grid(order()) : empty('لا توجد منتجات حاليًا.')}`,
@@ -128,15 +130,25 @@ const R = {
     <button class="btn" data-act="save" data-id="${p.id}" aria-pressed="${saved.includes(p.id)}" aria-label="حفظ أو إزالة المنتج">${ic('star')}</button></div></div></div>`;
   },
   cart: () => {
+    if (done) {
+      return `<h1>تم تسجيل الطلب</h1><div class="box"><p>رقم طلبك: <strong>${done.id.toLocaleString('ar-EG')}</strong></p>
+      <p class="sub">تم حفظ طلبك. أرسل التفاصيل للمتجر عبر واتساب ليؤكد الطلب معك.</p>
+      <a class="btn pri" target="_blank" rel="noopener" href="https://wa.me/${C.whatsapp}?text=${encodeURIComponent(done.msg)}">إرسال التفاصيل عبر واتساب</a></div>
+      <p><a class="btn" href="#/">متابعة التسوق</a></p>`;
+    }
     const l = Object.keys(cart).map(id => ({ p: byId(id), q: cart[id] })).filter(x => x.p);
     if (!l.length) return `<h1>السلة</h1>${empty('السلة فارغة.')}`;
     const tot = l.reduce((s, x) => s + x.p.price * x.q, 0);
-    const msg = `طلب جديد من ${C.storeName}\n` + l.map(x => `- ${x.p.name} × ${x.q} = ${money(x.p.price * x.q)}`).join('\n') + `\nالإجمالي: ${money(tot)}`;
     return `<h1>السلة</h1><div class="box">${l.map(x => `<div class="item"><div><div class="name">${esc(x.p.name)}</div><div class="sub">${money(x.p.price)} للقطعة، الإجمالي ${money(x.p.price * x.q)}</div></div>
     <div class="qty"><button class="btn" data-act="dec" data-id="${x.p.id}" aria-label="تقليل الكمية">${ic('minus')}</button><span>${x.q.toLocaleString('ar-EG')}</span><button class="btn" data-act="inc" data-id="${x.p.id}" aria-label="زيادة الكمية">${ic('plus')}</button><button class="btn" data-act="del" data-id="${x.p.id}" aria-label="حذف المنتج">${ic('trash')}</button></div></div>`).join('')}
     <div class="total">الإجمالي: ${money(tot)}</div>
-    <a class="btn pri" target="_blank" rel="noopener" href="https://wa.me/${C.whatsapp}?text=${encodeURIComponent(msg)}">إرسال الطلب عبر واتساب</a>
-    <p class="sub">فتح واتساب لا يسجل الطلب في قاعدة بيانات.</p></div>`;
+    <p class="sub">السعر النهائي يتم حسابه عند تسجيل الطلب من أسعار المتجر الحالية.</p></div>
+    <form id="of" novalidate><h2>بيانات الطلب</h2>
+    ${fl('oname', 'الاسم', `<input id="oname" name="oname" autocomplete="name" value="${esc(draft.oname)}">`)}
+    ${fl('ophone', 'رقم الهاتف', `<input id="ophone" name="ophone" type="tel" inputmode="tel" autocomplete="tel" value="${esc(draft.ophone)}">`)}
+    ${fl('oaddress', 'عنوان التوصيل', `<textarea id="oaddress" name="oaddress" autocomplete="street-address">${esc(draft.oaddress)}</textarea>`)}
+    ${fl('onotes', 'ملاحظات (اختياري)', `<input id="onotes" name="onotes" value="${esc(draft.onotes)}">`)}
+    <button class="btn pri" type="submit" id="obtn">تأكيد الطلب</button>${stBox}</form>`;
   },
   complaints: () => `<h1>الشكاوى</h1><form id="cf" novalidate>
     ${fl('name', 'الاسم', '<input id="name" name="name" autocomplete="name">')}
@@ -144,14 +156,14 @@ const R = {
     ${fl('order', 'رقم الطلب (إن وجد)', '<input id="order" name="order">')}
     ${fl('type', 'نوع الشكوى', '<select id="type" name="type"><option value="">اختر نوع الشكوى</option><option>مشكلة في منتج</option><option>تأخر الطلب</option><option>مشكلة في السعر أو العرض</option><option>مشكلة في التوصيل</option><option>شكوى أخرى</option></select>')}
     ${fl('details', 'تفاصيل الشكوى', '<textarea id="details" name="details"></textarea>')}
-    <button class="btn pri" type="submit" id="cbtn">إرسال الشكوى</button><div id="st" role="status" style="margin-top:16px"></div></form>`,
+    <button class="btn pri" type="submit" id="cbtn">إرسال الشكوى</button>${stBox}</form>`,
   login: () => user
     ? `<h1>حسابي</h1><p>${esc(user.email)}</p><button class="btn" data-act="logout">تسجيل الخروج</button>`
     : `<h1>تسجيل الدخول</h1><p class="sub">الحساب اختياري. يحفظ مفضلتك في حسابك على أي جهاز.</p><form id="lf" novalidate>
     ${fl('email', 'البريد الإلكتروني', '<input id="email" name="email" type="email" autocomplete="email" dir="ltr">')}
     ${fl('password', 'كلمة المرور (6 أحرف على الأقل)', '<input id="password" name="password" type="password" autocomplete="current-password" dir="ltr">')}
     <div class="row"><button class="btn pri" type="submit" data-mode="in">دخول</button><button class="btn" type="submit" data-mode="up">إنشاء حساب</button></div>
-    <div id="st" role="status" style="margin-top:16px"></div></form>`
+    ${stBox}</form>`
 };
 
 const buildNav = () => {
@@ -190,6 +202,10 @@ document.getElementById('q').addEventListener('input', e => {
   location.hash = v ? '#/search/' + encodeURIComponent(v) : '#/';
 });
 
+document.addEventListener('input', e => {
+  if (e.target.closest('#of')) draft[e.target.id] = e.target.value;
+});
+
 document.addEventListener('click', async e => {
   const b = e.target.closest('[data-act]');
   if (!b) return;
@@ -219,20 +235,22 @@ const setSt = (t, ok) => {
   st.style.cssText = ok ? 'color:var(--ok);border-color:var(--ok)' : '';
   st.textContent = t;
 };
+const errs = (er, keys) => keys.forEach(k => { document.getElementById('e-' + k).textContent = er[k] || ''; });
+const digits = s => s.trim().replace(/[٠-٩]/g, x => '٠١٢٣٤٥٦٧٨٩'.indexOf(x));
 
 document.addEventListener('submit', async e => {
   const f = e.target;
-  if (f.id !== 'cf' && f.id !== 'lf') return;
+  if (f.id !== 'cf' && f.id !== 'lf' && f.id !== 'of') return;
   e.preventDefault();
   const d = Object.fromEntries(new FormData(f));
   if (f.id === 'cf') {
-    const ph = (d.phone || '').trim().replace(/[٠-٩]/g, x => '٠١٢٣٤٥٦٧٨٩'.indexOf(x));
+    const ph = digits(d.phone || '');
     const er = {};
     if (d.name.trim().length < 2) er.name = 'اكتب اسمك';
     if (!/^01[0125]\d{8}$/.test(ph)) er.phone = 'اكتب رقم موبايل مصري صحيح من 11 رقمًا';
     if (!d.type) er.type = 'اختر نوع الشكوى';
     if (d.details.trim().length < 10) er.details = 'اكتب تفاصيل الشكوى (10 أحرف على الأقل)';
-    ['name', 'phone', 'type', 'details'].forEach(k => { document.getElementById('e-' + k).textContent = er[k] || ''; });
+    errs(er, ['name', 'phone', 'type', 'details']);
     if (Object.keys(er).length) return setSt('');
     if (!sb) return setSt('قاعدة البيانات غير مربوطة بعد، لذلك لم يتم إرسال الشكوى.');
     const btn = document.getElementById('cbtn');
@@ -241,12 +259,12 @@ document.addEventListener('submit', async e => {
     btn.disabled = false;
     if (r.error) return setSt('تعذر إرسال الشكوى. حاول مرة أخرى بعد قليل.');
     f.reset(); setSt('تم إرسال شكواك وحفظها. سنراجعها ونتواصل معك.', true);
-  } else {
+  } else if (f.id === 'lf') {
     const mode = e.submitter && e.submitter.dataset.mode;
     const er = {};
     if (!/^\S+@\S+\.\S+$/.test(d.email.trim())) er.email = 'اكتب بريدًا إلكترونيًا صحيحًا';
     if (d.password.length < 6) er.password = 'كلمة المرور 6 أحرف على الأقل';
-    ['email', 'password'].forEach(k => { document.getElementById('e-' + k).textContent = er[k] || ''; });
+    errs(er, ['email', 'password']);
     if (Object.keys(er).length) return setSt('');
     if (!sb) return setSt('قاعدة البيانات غير مربوطة بعد.');
     setSt('جار التنفيذ...');
@@ -255,10 +273,36 @@ document.addEventListener('submit', async e => {
     if (r.error) return setSt(mode === 'up' ? 'تعذر إنشاء الحساب. قد يكون البريد مستخدمًا.' : 'تعذر الدخول. تأكد من البريد وكلمة المرور.');
     if (!r.data.session) return setSt('تم إنشاء الحساب. افتح بريدك لتأكيده ثم سجل الدخول.', true);
     location.hash = '#/saved';
+  } else {
+    const nm = d.oname.trim(), ph = digits(d.ophone || ''), ad = d.oaddress.trim(), nt = d.onotes.trim();
+    const er = {};
+    if (nm.length < 2) er.oname = 'اكتب اسمك';
+    if (!/^01[0125]\d{8}$/.test(ph)) er.ophone = 'اكتب رقم موبايل مصري صحيح من 11 رقمًا';
+    if (ad.length < 5) er.oaddress = 'اكتب عنوان التوصيل بالتفصيل';
+    errs(er, ['oname', 'ophone', 'oaddress']);
+    if (Object.keys(er).length) return setSt('');
+    const items = Object.keys(cart).filter(id => byId(id)).map(id => ({ id: Number(id), qty: cart[id] }));
+    if (!items.length) return setSt('السلة فارغة.');
+    if (!sb) return setSt('قاعدة البيانات غير مربوطة بعد، لذلك لم يتم تسجيل الطلب.');
+    const btn = document.getElementById('obtn');
+    btn.disabled = true; setSt('جار تسجيل الطلب...');
+    const r = await sb.rpc('place_order', { p_name: nm, p_phone: ph, p_address: ad, p_notes: nt, p_items: items });
+    btn.disabled = false;
+    if (r.error) return setSt('تعذر تسجيل الطلب. قد يكون أحد المنتجات غير متوفر الآن. حدّث الصفحة وحاول مرة أخرى.');
+    const tot = items.reduce((s, x) => s + byId(x.id).price * x.qty, 0);
+    const msg = `طلب رقم ${r.data} من ${C.storeName}\nالاسم: ${nm}\nالهاتف: ${ph}\nالعنوان: ${ad}\n` +
+      items.map(x => `- ${byId(x.id).name} × ${x.qty} = ${money(byId(x.id).price * x.qty)}`).join('\n') +
+      `\nالإجمالي: ${money(tot)}` + (nt ? `\nملاحظات: ${nt}` : '');
+    done = { id: r.data, msg };
+    cart = {}; sv('cart', cart); draft.onotes = '';
+    render();
   }
 });
 
-window.addEventListener('hashchange', () => { render(); scrollTo(0, 0); M.focus({ preventScroll: true }); });
+window.addEventListener('hashchange', () => {
+  if (location.hash !== '#/cart') done = null;
+  render(); scrollTo(0, 0); M.focus({ preventScroll: true });
+});
 
 if (sb) {
   sb.auth.onAuthStateChange((_ev, session) => {
