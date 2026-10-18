@@ -29,6 +29,13 @@ const load = async () => {
   ]);
   if (c.error || p.error) { loadErr = 'تعذر تحميل البيانات. تحقق من الاتصال وحاول مرة أخرى.'; return; }
   cats = c.data;
+  const s = await sb.from('store_settings').select('store_name,whatsapp').eq('id', 1).maybeSingle();
+  if (s.data) {
+    C.storeName = s.data.store_name;
+    C.whatsapp = s.data.whatsapp;
+    document.getElementById('logo').textContent = C.storeName;
+    document.title = C.storeName;
+  }
   const now = Date.now();
   P = p.data.map(r => {
     const on = r.offer_type !== 'none'
@@ -129,7 +136,7 @@ const R = {
     <div class="qty"><button class="btn" data-act="dec" data-id="${x.p.id}" aria-label="تقليل الكمية">${ic('minus')}</button><span>${x.q.toLocaleString('ar-EG')}</span><button class="btn" data-act="inc" data-id="${x.p.id}" aria-label="زيادة الكمية">${ic('plus')}</button><button class="btn" data-act="del" data-id="${x.p.id}" aria-label="حذف المنتج">${ic('trash')}</button></div></div>`).join('')}
     <div class="total">الإجمالي: ${money(tot)}</div>
     <a class="btn pri" target="_blank" rel="noopener" href="https://wa.me/${C.whatsapp}?text=${encodeURIComponent(msg)}">إرسال الطلب عبر واتساب</a>
-    <p class="sub">رقم واتساب الحالي تجريبي. فتح واتساب لا يسجل الطلب في قاعدة بيانات.</p></div>`;
+    <p class="sub">فتح واتساب لا يسجل الطلب في قاعدة بيانات.</p></div>`;
   },
   complaints: () => `<h1>الشكاوى</h1><form id="cf" novalidate>
     ${fl('name', 'الاسم', '<input id="name" name="name" autocomplete="name">')}
