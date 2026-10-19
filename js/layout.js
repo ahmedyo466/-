@@ -1,4 +1,9 @@
 (() => {
+// إعدادات مركزية: ضع مسارات صور الأقسام (بالترتيب) وصورة القسم الترويجي هنا
+const IMG = { tiles: [], promo: '' };
+// مثال: tiles: ['img/cat1.jpg','img/cat2.jpg','img/cat3.jpg','img/cat4.jpg'], promo: 'img/promo.jpg'
+const TAGLINE = 'كل اللي يخص بيتك .. بأفضل سعر';
+
 const $ = id => document.getElementById(id);
 const main = $('main'), banner = $('banner'), nav = $('navwrap');
 const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x) e.textContent = x; return e; };
@@ -12,6 +17,17 @@ $('menu').addEventListener('click', () => {
 });
 nav.addEventListener('click', e => { if (e.target.closest('a')) { nav.classList.remove('open'); $('menu').setAttribute('aria-expanded', 'false'); } });
 
+const promo = el('section', 'promo');
+promo.setAttribute('aria-label', 'مساحة ترويجية');
+if (IMG.promo) { const i = el('img'); i.src = IMG.promo; i.alt = ''; promo.append(i); }
+main.after(promo);
+
+const fl = el('div', 'wrap flinks');
+[['#/', 'الرئيسية'], ['#/offers', 'العروض'], ['#/new', 'أحدث المنتجات'], ['#/saved', 'المحفوظات'], ['#/complaints', 'الشكاوى']]
+  .forEach(([h, t]) => { const a = el('a', '', t); a.href = h; fl.append(a); });
+fl.append(el('span', '', TAGLINE));
+document.querySelector('.fbar').after(fl);
+
 const social = () => {
   const s = $('soc'); s.textContent = '';
   const a = el('a'); a.href = 'https://wa.me/' + (window.CONFIG.whatsapp || ''); a.target = '_blank'; a.rel = 'noopener';
@@ -23,18 +39,24 @@ new MutationObserver(social).observe($('nav'), { childList: true });
 social();
 
 const decorate = () => {
-  banner.hidden = !isHome();
+  const home = isHome();
+  banner.hidden = !home; promo.hidden = !home;
   main.querySelectorAll('[data-act=save] svg').forEach(s => { if (s.querySelector('polygon')) s.innerHTML = HEART; });
-  if (!isHome() || main.querySelector('.tiles') || !main.querySelector('.grid')) return;
+  const grid = main.querySelector('.grid');
+  if (!home || main.querySelector('.panel') || !grid) return;
   const tiles = el('div', 'tiles');
-  document.querySelectorAll('#nav a[href^="#/cat/"]').forEach(a => {
+  document.querySelectorAll('#nav a[href^="#/cat/"]').forEach((a, n) => {
     const t = el('a', 'tile'); t.href = a.getAttribute('href');
+    if (IMG.tiles[n]) { const i = el('img'); i.src = IMG.tiles[n]; i.alt = ''; t.append(i); }
     t.append(el('span', '', a.textContent));
     const i = el('i'); i.innerHTML = ARROW; t.append(i);
     tiles.append(t);
   });
+  const panel = el('section', 'panel');
   const h1 = main.querySelector('h1');
-  if (h1) { h1.textContent = 'منتجات مختارة لك'; h1.className = 'sec'; }
+  if (h1) { h1.textContent = 'منتجات مميزة'; panel.append(h1); }
+  grid.classList.add('rs'); panel.append(grid);
+  main.prepend(panel);
   if (tiles.children.length) main.prepend(tiles);
 };
 new MutationObserver(decorate).observe(main, { childList: true });
