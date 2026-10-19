@@ -33,14 +33,14 @@ const showLogin = () => {
 const vProducts = () => {
   if (editing !== null) return vForm();
   const list = prods.length ? prods.map(p => `<div class="item"><div><div class="name">${esc(p.name)}</div>
-  <div class="sub">${money(p.price)} | ${OFN[p.offer_type]} | ${p.in_stock ? 'متوفر' : 'غير متوفر'} | ${p.is_active ? 'ظاهر' : 'مخفي'}${p.is_demo ? ' | تجريبي' : ''}</div></div>
+  <div class="sub">${money(p.price)} | ${OFN[p.offer_type]} | ${p.in_stock ? 'متوفر' : 'غير متوفر'} | ${p.is_active ? 'ظاهر' : 'مخفي'}${p.is_demo ? ' | تجريبي' : ''}${p.brand ? ' | ' + esc(p.brand) : ''}</div></div>
   <button class="btn" data-a="edit" data-id="${p.id}">تعديل</button></div>`).join('') : '<p class="empty">لا توجد منتجات.</p>';
   return `<button class="btn pri" data-a="new">إضافة منتج</button><div class="box" style="margin-top:16px">${list}</div>`;
 };
 
 const vForm = () => {
   const isNew = editing === 'new';
-  const p = isNew ? { offer_type: 'none', in_stock: true, is_active: true, is_demo: false } : prods.find(x => x.id === editing);
+  const p = isNew ? { offer_type: 'none', in_stock: true, is_active: true, is_demo: false, colors: [] } : prods.find(x => x.id === editing);
   const cs = cats.map(c => `<option value="${c.id}" ${p.category_id === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
   const of = Object.keys(OFN).map(k => `<option value="${k}" ${p.offer_type === k ? 'selected' : ''}>${OFN[k]}</option>`).join('');
   const img = p.image_url ? `<img src="${esc(p.image_url)}" alt="الصورة الحالية" width="96" style="display:block;margin-bottom:8px;border-radius:8px">` : '';
@@ -48,6 +48,8 @@ const vForm = () => {
   ${fl('name', 'اسم المنتج', `<input id="name" name="name" value="${esc(p.name)}">`)}
   ${fl('description', 'الوصف', `<textarea id="description" name="description">${esc(p.description)}</textarea>`)}
   ${fl('category', 'القسم', `<select id="category" name="category"><option value="">بدون قسم</option>${cs}</select>`)}
+  ${fl('brand', 'العلامة التجارية (اختياري)', `<input id="brand" name="brand" maxlength="60" value="${esc(p.brand)}">`)}
+  ${fl('colors', 'الألوان المتاحة (اختياري، افصل بينها بفاصلة، مثال: أسود، أحمر)', `<input id="colors" name="colors" value="${esc((p.colors || []).join('، '))}">`)}
   ${fl('price', 'السعر الحالي (ج.م)', `<input id="price" name="price" inputmode="decimal" value="${esc(p.price)}">`)}
   ${fl('old_price', 'السعر السابق (اكتبه فقط عند وجود خصم حقيقي)', `<input id="old_price" name="old_price" inputmode="decimal" value="${esc(p.old_price)}">`)}
   ${fl('offer', 'نوع العرض', `<select id="offer" name="offer">${of}</select>`)}
@@ -85,7 +87,7 @@ const vSettings = () => !settings ? '<p class="status">لا توجد إعداد�
 
 const draw = (ok = true) => {
   const tabs = [['products', 'المنتجات'], ['orders', 'الطلبات'], ['categories', 'الأقسام'], ['complaints', 'الشكاوى'], ['settings', 'الإعدادات']]
-    .map(([k, l]) => `<button class="btn ${tab === k ? 'on' : ''}" data-a="tab" data-t="${k}">${l}</button>`).join('');
+    .map(([k, l]) => `<button class="btn ${tab === k ? 'pri' : ''}" data-a="tab" data-t="${k}">${l}</button>`).join('');
   const body = !ok ? '<p class="status">تعذر تحميل البيانات. حاول مرة أخرى.</p>' : { products: vProducts, orders: vOrders, categories: vCats, complaints: vComps, settings: vSettings }[tab]();
   const fb = flash ? `<p class="status" style="margin-top:16px;${flash.ok ? 'color:var(--ok);border-color:var(--ok)' : ''}">${esc(flash.t)}</p>` : '';
   A.innerHTML = `<h1>لوحة الإدارة</h1><div class="row" style="flex-wrap:wrap">${tabs}<button class="btn" data-a="out">خروج</button></div>${fb}<div style="margin-top:16px">${body}</div>`;
@@ -136,6 +138,7 @@ const saveProduct = async f => {
   const name = d.get('name').trim(), priceRaw = d.get('price').trim(), price = num(priceRaw);
   const oldRaw = d.get('old_price').trim(), old = oldRaw === '' ? null : num(oldRaw);
   const ot = d.get('offer'), s = d.get('starts'), e = d.get('ends'), file = d.get('image');
+  const colors = [...new Set(d.get('colors').split(/[,،]/).map(x => x.trim()).filter(Boolean))].slice(0, 12);
   if (name.length < 2) er.name = 'اكتب اسم المنتج';
   if (priceRaw === '' || !Number.isFinite(price) || price < 0) er.price = 'اكتب سعرًا صحيحًا';
   if (old !== null && (!Number.isFinite(old) || old <= price)) er.old_price = 'السعر السابق لازم يكون أكبر من السعر الحالي';
@@ -156,6 +159,7 @@ const saveProduct = async f => {
   const row = {
     name, description: d.get('description').trim() || null,
     category_id: d.get('category') ? Number(d.get('category')) : null,
+    brand: d.get('brand').trim() || null, colors,
     price, old_price: old, offer_type: ot,
     offer_starts_at: ot !== 'none' && s ? new Date(s).toISOString() : null,
     offer_ends_at: ot !== 'none' && e ? new Date(e).toISOString() : null,
